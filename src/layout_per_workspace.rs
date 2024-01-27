@@ -51,6 +51,12 @@ impl FromStr for KeyboardLayout {
     }
 }
 
+impl Default for KeyboardLayout {
+    fn default() -> Self {
+        Self::En
+    }
+}
+
 pub fn add_handler(listener: &mut EventListener) {
     let workspaces = Arc::new(Mutex::new(vec![]));
     let keyboard_name = Arc::new(Mutex::new(String::new()));
@@ -59,19 +65,21 @@ pub fn add_handler(listener: &mut EventListener) {
     let kb_keyboard_name = Arc::clone(&keyboard_name);
 
     listener.add_keyboard_layout_change_handler(move |event| {
-        let mut workspaces = kb_workspaces.lock().unwrap();
+        let current_workspace_idx = get_current_workspace_idx().unwrap();
 
-        let current_workspace_idx = Workspace::get_active().unwrap().id as usize - 1;
+        let mut workspaces = kb_workspaces.lock().unwrap();
         if current_workspace_idx >= workspaces.len() {
             for _ in workspaces.len()..current_workspace_idx + 1 {
-                workspaces.push(KeyboardLayout::En);
+                workspaces.push(KeyboardLayout::default());
             }
         }
 
         let (kb_name, layout_name) = event.keyboard_name.split_once(',').unwrap();
+
         let mut keyboard_name = kb_keyboard_name.lock().unwrap();
         *keyboard_name = kb_name.to_string();
 
+        println!("Setting {layout_name} for {current_workspace_idx}");
         workspaces[current_workspace_idx] = KeyboardLayout::from_str(layout_name).unwrap();
     });
 
@@ -81,7 +89,7 @@ pub fn add_handler(listener: &mut EventListener) {
         let workspace_name = match event {
             WorkspaceType::Regular(name) => name,
             WorkspaceType::Special(Some(name)) => name,
-            _ => String::new(),
+            _ => panic!("Got unknown event type {event:?}"),
         };
         let workspace_idx = workspace_name.parse::<usize>().unwrap() - 1;
 
@@ -91,6 +99,7 @@ pub fn add_handler(listener: &mut EventListener) {
                 workspaces.push(KeyboardLayout::En);
             }
         }
+
         let keyboard_name = wc_keyboard_name.lock().unwrap();
         let _ = switch_xkb_layout::call(
             &keyboard_name,
@@ -98,14 +107,12 @@ pub fn add_handler(listener: &mut EventListener) {
                 workspaces[workspace_idx].as_id(),
             ),
         );
-    })
-}
+    });
 
-fn add_layout_display_manager(listener: &mut EventListener, layout_to_display: KeyboardLayout) {
     listener.add_keyboard_layout_change_handler(move |event| {
         if let Some((_, current_layout)) = event.keyboard_name.split_once(',') {
             let _ = KeyboardLayout::from_str(current_layout).map(|layout| {
-                if layout == layout_to_display {
+                if layout == KeyboardLayout::Ru {
                     let _ = common::update_eww_var("left_section_style", "left_section")
                         .and(common::update_eww_var("layout_alert_reveal", "true"));
                 } else {
@@ -115,4 +122,8 @@ fn add_layout_display_manager(listener: &mut EventListener, layout_to_display: K
             });
         }
     });
+}
+
+fn get_current_workspace_idx() -> hyprland::Result<usize> {
+    Ok(Workspace::get_active()?.id as usize - 1)
 }
